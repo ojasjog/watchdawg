@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Watchdog — Threat Ledger</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#090c10;
+    --bg-glow: radial-gradient(60% 50% at 20% -10%, rgba(94,234,212,0.10), transparent 60%),
+               radial-gradient(50% 40% at 90% 0%, rgba(240,85,107,0.08), transparent 60%);
+    --glass: rgba(255,255,255,0.045);
+    --glass-border: rgba(255,255,255,0.09);
+    --text: #e7ecf1;
+    --text-dim: #8b98a5;
+    --teal: #5eead4;
+    --amber: #f5a742;
+    --pink: #f0556b;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, "Segoe UI", Inter, system-ui, sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html{color-scheme: dark; height:100%;}
+  body{
+    height:100%; margin:0; color:var(--text);
+    background-color: var(--bg);
+    background-image: var(--bg-glow);
+    forced-color-adjust: none;
+    font-family:var(--sans); padding: 32px clamp(16px,4vw,48px) 64px;
+    padding-top: calc(32px + env(safe-area-inset-top,0px));
+  }
+  .top{display:flex; align-items:center; justify-content:space-between; margin-bottom:28px; flex-wrap:wrap; gap:12px;}
+  h1{font-size:1.4rem; font-weight:600; margin:0; letter-spacing:-0.01em;}
+  h1 span{color:var(--text-dim); font-weight:400;}
+  .status{display:flex; align-items:center; gap:8px; font-family:var(--mono); font-size:0.8rem; color:var(--text-dim);}
+  .dot{width:8px; height:8px; border-radius:50%; background:var(--teal); box-shadow:0 0 8px var(--teal);
+       animation:pulse 2s ease-in-out infinite;}
+  .dot.off{background:#555; box-shadow:none; animation:none;}
+  @keyframes pulse{0%,100%{opacity:1;} 50%{opacity:0.35;}}
+
+  .glass{
+    background:var(--glass); border:1px solid var(--glass-border); border-radius:14px;
+    backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+  }
+
+  .stats{display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:20px;}
+  .stat{padding:18px 20px;}
+  .stat .label{font-size:0.72rem; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.06em;}
+  .stat .value{font-family:var(--mono); font-size:1.9rem; margin-top:6px;}
+  .stat.a .value{color:var(--teal);}
+  .stat.b .value{color:var(--amber);}
+  .stat.c .value{color:var(--pink);}
+
+  .main{display:grid; grid-template-columns: 2fr 1fr; gap:16px; margin-bottom:20px;}
+  .panel{padding:20px;}
+  .panel h2{font-size:0.95rem; margin:0 0 14px; font-weight:600;}
+  .panel h2 small{color:var(--text-dim); font-weight:400; font-family:var(--mono); font-size:0.75rem;}
+  canvas{max-height:280px;}
+
+  .blocklist{display:flex; flex-direction:column; gap:10px; max-height:280px; overflow-y:auto;}
+  .block-row{display:flex; align-items:center; justify-content:space-between; padding:10px 12px;
+             background:rgba(240,85,107,0.06); border:1px solid rgba(240,85,107,0.18); border-radius:8px;}
+  .block-row .ip{font-family:var(--mono); font-size:0.85rem;}
+  .block-row .expires{font-size:0.7rem; color:var(--text-dim); margin-top:2px;}
+  .block-row button{
+    background:transparent; border:1px solid var(--glass-border); color:var(--text-dim);
+    border-radius:6px; padding:5px 10px; font-size:0.72rem; cursor:pointer; font-family:var(--sans);
+  }
+  .block-row button:hover{color:var(--text); border-color:var(--text-dim);}
+  .empty{color:var(--text-dim); font-size:0.85rem; padding:8px 0;}
+
+  table{width:100%; border-collapse:collapse; font-size:0.82rem;}
+  thead th{text-align:left; color:var(--text-dim); font-weight:500; padding:8px 10px; border-bottom:1px solid var(--glass-border);
+            text-transform:uppercase; font-size:0.68rem; letter-spacing:0.05em;}
+  tbody td{padding:9px 10px; border-bottom:1px solid rgba(255,255,255,0.04); font-family:var(--mono); font-size:0.8rem;}
+  tbody tr:hover{background:rgba(255,255,255,0.02);}
+  .badge{padding:3px 8px; border-radius:5px; font-size:0.68rem; font-family:var(--sans); font-weight:600;}
+  .badge.card{background:rgba(245,167,66,0.15); color:var(--amber);}
+  .badge.ent{background:rgba(240,85,107,0.15); color:var(--pink);}
+  .tablewrap{max-height:320px; overflow-y:auto;}
+
+  @media (max-width: 860px){
+    .stats{grid-template-columns:repeat(2,1fr);}
+    .main{grid-template-columns:1fr;}
+  }
+</style>
+</head>
+<body>
+
+  <div class="top">
+    <h1>Watchdog <span>// Intrusion Detection &amp; Prevention</span></h1>
+    <div class="status"><span class="dot" id="liveDot"></span><span id="liveText">connecting…</span></div>
+  </div>
+
+  <div class="stats">
+    <div class="glass stat a"><div class="label">Total Alerts</div><div class="value" id="statTotal">–</div></div>
+    <div class="glass stat"><div class="label">Active Blocks</div><div class="value" id="statBlocks">–</div></div>
+    <div class="glass stat b"><div class="label">Cardinality Hits</div><div class="value" id="statCard">–</div></div>
+    <div class="glass stat c"><div class="label">Entropy Hits</div><div class="value" id="statEnt">–</div></div>
+  </div>
+
+  <div class="main">
+    <div class="glass panel">
+      <h2>Live Port Entropy <small>normalized Shannon H, last 5 min, alarm ≥ 0.85</small></h2>
+      <canvas id="entropyChart"></canvas>
+    </div>
+    <div class="glass panel">
+      <h2>Blocked IPs <small>auto-expiring, 5 min</small></h2>
+      <div class="blocklist" id="blockList"><div class="empty">No active blocks.</div></div>
+    </div>
+  </div>
+
+  <div class="glass panel">
+    <h2>Alert Ledger <small>most recent 50</small></h2>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Time</th><th>Source IP</th><th>Detection</th><th>Ports</th><th>Entropy</th><th>Signature</th></tr></thead>
+        <tbody id="alertBody"><tr><td colspan="6" class="empty">Waiting for data…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+<script>
+const entropyCtx = document.getElementById('entropyChart').getContext('2d');
+const entropyChart = new Chart(entropyCtx, {
+  type: 'line',
+  data: { datasets: [] },
+  options: {
+    responsive:true, maintainAspectRatio:false,
+    scales: {
+      x: { type:'linear', ticks:{ color:'#8b98a5', callback:(v)=>new Date(v*1000).toLocaleTimeString() }, grid:{color:'rgba(255,255,255,0.05)'} },
+      y: { min:0, max:1, ticks:{ color:'#8b98a5' }, grid:{color:'rgba(255,255,255,0.05)'} }
+    },
+    plugins: { legend: { labels:{ color:'#e7ecf1', font:{size:10} } } },
+    animation:false
+  }
+});
+
+const palette = ['#5eead4','#f5a742','#f0556b','#8ab4f8','#c792ea','#7ee787'];
+function colorFor(ip){
+  let h = 0; for (const c of ip) h = (h*31 + c.charCodeAt(0)) >>> 0;
+  return palette[h % palette.length];
+}
+
+async function refresh(){
+  try{
+    const [stats, entropy, blocks, alerts] = await Promise.all([
+      fetch('/api/stats').then(r=>r.json()),
+      fetch('/api/entropy').then(r=>r.json()),
+      fetch('/api/blocks').then(r=>r.json()),
+      fetch('/api/alerts').then(r=>r.json()),
+    ]);
+
+    document.getElementById('statTotal').textContent = stats.total_alerts;
+    document.getElementById('statBlocks').textContent = stats.active_blocks;
+    document.getElementById('statCard').textContent = stats.cardinality_hits;
+    document.getElementById('statEnt').textContent = stats.entropy_hits;
+    document.getElementById('liveDot').classList.remove('off');
+    document.getElementById('liveText').textContent = 'live';
+
+    const byIp = {};
+    entropy.forEach(row => {
+      (byIp[row.source_ip] ??= []).push({x: row.ts, y: row.entropy_value});
+    });
+    entropyChart.data.datasets = Object.entries(byIp).map(([ip, pts]) => ({
+      label: ip, data: pts, borderColor: colorFor(ip), backgroundColor: 'transparent',
+      tension: 0.25, pointRadius: 2, borderWidth: 2
+    }));
+    entropyChart.update();
+
+    const blockList = document.getElementById('blockList');
+    blockList.innerHTML = blocks.length ? '' : '<div class="empty">No active blocks.</div>';
+    blocks.forEach(b => {
+      const row = document.createElement('div');
+      row.className = 'block-row';
+      const remaining = Math.max(0, Math.round(b.expires_at - Date.now()/1000));
+      row.innerHTML = `<div><div class="ip">${b.ip}</div><div class="expires">expires in ${remaining}s</div></div>`;
+      const btn = document.createElement('button');
+      btn.textContent = 'Unblock now';
+      btn.onclick = () => fetch('/api/unblock', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ip:b.ip})}).then(refresh);
+      row.appendChild(btn);
+      blockList.appendChild(row);
+    });
+
+    const body = document.getElementById('alertBody');
+    body.innerHTML = alerts.length ? '' : '<tr><td colspan="6" class="empty">No alerts yet.</td></tr>';
+    alerts.forEach(a => {
+      const tr = document.createElement('tr');
+      const isEnt = a.detection_type === 'PORT_SCAN_ENTROPY';
+      tr.innerHTML = `
+        <td>${new Date(a.ts*1000).toLocaleTimeString()}</td>
+        <td>${a.source_ip}</td>
+        <td><span class="badge ${isEnt?'ent':'card'}">${isEnt?'ENTROPY':'CARDINALITY'}</span></td>
+        <td>${a.unique_ports}</td>
+        <td>${a.entropy_value?.toFixed(3) ?? '–'}</td>
+        <td>${a.signature ? a.signature.slice(0,16)+'…' : '–'}</td>`;
+      body.appendChild(tr);
+    });
+  }catch(e){
+    document.getElementById('liveDot').classList.add('off');
+    document.getElementById('liveText').textContent = 'no connection';
+  }
+}
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>
