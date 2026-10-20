@@ -31,7 +31,7 @@
     font-family:var(--sans); padding: 32px clamp(16px,4vw,48px) 64px;
     padding-top: calc(32px + env(safe-area-inset-top,0px));
   }
-  .top{display:flex; align-items:center; justify-content:space-between; margin-bottom:28px; flex-wrap:wrap; gap:12px;}
+  .top{display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; flex-wrap:wrap; gap:12px;}
   h1{font-size:1.4rem; font-weight:600; margin:0; letter-spacing:-0.01em;}
   h1 span{color:var(--text-dim); font-weight:400;}
   .status{display:flex; align-items:center; gap:8px; font-family:var(--mono); font-size:0.8rem; color:var(--text-dim);}
@@ -41,14 +41,30 @@
   .dot.warn{background:var(--amber); box-shadow:0 0 8px var(--amber); animation:none;}
   @keyframes pulse{0%,100%{opacity:1;} 50%{opacity:0.35;}}
 
+  /* Legend strip: explains the two detector types and the badges up front,
+     so nobody has to guess what "cardinality" or "entropy" mean. */
+  .legend{
+    display:flex; flex-wrap:wrap; gap:18px; align-items:center;
+    font-size:0.75rem; color:var(--text-dim); margin-bottom:22px; padding:10px 14px;
+    background:rgba(255,255,255,0.025); border:1px solid var(--glass-border); border-radius:10px;
+  }
+  .legend b{color:var(--text); font-weight:600;}
+  .legend .key{display:flex; align-items:center; gap:6px;}
+  .legend .swatch{width:9px; height:9px; border-radius:3px; flex:none;}
+  .swatch.card{background:var(--amber);}
+  .swatch.ent{background:var(--pink);}
+  .swatch.blk{background:var(--teal);}
+  .swatch.log{background:#555;}
+
   .glass{
     background:var(--glass); border:1px solid var(--glass-border); border-radius:14px;
     backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
   }
 
   .stats{display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:20px;}
-  .stat{padding:18px 20px;}
+  .stat{padding:18px 20px; cursor:default;}
   .stat .label{font-size:0.72rem; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.06em;}
+  .stat .sublabel{font-size:0.66rem; color:var(--text-dim); opacity:0.7; margin-top:2px;}
   .stat .value{font-family:var(--mono); font-size:1.9rem; margin-top:6px;}
   .stat.a .value{color:var(--teal);}
   .stat.b .value{color:var(--amber);}
@@ -56,8 +72,9 @@
 
   .main{display:grid; grid-template-columns: 2fr 1fr; gap:16px; margin-bottom:20px;}
   .panel{padding:20px;}
-  .panel h2{font-size:0.95rem; margin:0 0 14px; font-weight:600;}
+  .panel h2{font-size:0.95rem; margin:0 0 4px; font-weight:600;}
   .panel h2 small{color:var(--text-dim); font-weight:400; font-family:var(--mono); font-size:0.75rem;}
+  .panel .helptext{font-size:0.72rem; color:var(--text-dim); margin:0 0 14px;}
   canvas{max-height:280px;}
 
   .blocklist{display:flex; flex-direction:column; gap:10px; max-height:280px; overflow-y:auto;}
@@ -74,14 +91,17 @@
 
   table{width:100%; border-collapse:collapse; font-size:0.82rem;}
   thead th{text-align:left; color:var(--text-dim); font-weight:500; padding:8px 10px; border-bottom:1px solid var(--glass-border);
-            text-transform:uppercase; font-size:0.68rem; letter-spacing:0.05em;}
+            text-transform:uppercase; font-size:0.68rem; letter-spacing:0.05em; cursor:default;}
   tbody td{padding:9px 10px; border-bottom:1px solid rgba(255,255,255,0.04); font-family:var(--mono); font-size:0.8rem;}
   tbody tr:hover{background:rgba(255,255,255,0.02);}
-  .badge{padding:3px 8px; border-radius:5px; font-size:0.68rem; font-family:var(--sans); font-weight:600;}
+  td.score{cursor:default;}
+  td.score.hot{color:var(--pink); font-weight:600;}
+  .badge{padding:3px 8px; border-radius:5px; font-size:0.68rem; font-family:var(--sans); font-weight:600; cursor:default;}
   .badge.card{background:rgba(245,167,66,0.15); color:var(--amber);}
   .badge.ent{background:rgba(240,85,107,0.15); color:var(--pink);}
   .badge.blk{background:rgba(94,234,212,0.13); color:var(--teal);}
   .badge.log{background:rgba(255,255,255,0.07); color:var(--text-dim);}
+  .sig{cursor:default; border-bottom:1px dotted var(--text-dim);}
   .tablewrap{max-height:320px; overflow-y:auto;}
 
   @media (max-width: 860px){
@@ -97,44 +117,104 @@
     <div class="status"><span class="dot" id="liveDot"></span><span id="liveText">connecting…</span></div>
   </div>
 
+  <div class="legend">
+    <span><b>How to read this page:</b></span>
+    <span class="key"><span class="swatch card"></span>Fast scan (cardinality) — many ports, hit quickly</span>
+    <span class="key"><span class="swatch ent"></span>Slow scan (entropy) — fewer ports, spread out to avoid detection</span>
+    <span class="key"><span class="swatch blk"></span>Blocked — firewalled for 5 minutes</span>
+    <span class="key"><span class="swatch log"></span>Logged only — seen, but not blocked (usually this machine itself)</span>
+  </div>
+
   <div class="stats">
-    <div class="glass stat a"><div class="label">Total Alerts</div><div class="value" id="statTotal">–</div></div>
-    <div class="glass stat"><div class="label">Active Blocks</div><div class="value" id="statBlocks">–</div></div>
-    <div class="glass stat b"><div class="label">Cardinality Hits</div><div class="value" id="statCard">–</div></div>
-    <div class="glass stat c"><div class="label">Entropy Hits</div><div class="value" id="statEnt">–</div></div>
+    <div class="glass stat a" title="Every time either detector has raised an alarm, in total.">
+      <div class="label">Total Alerts</div>
+      <div class="value" id="statTotal">–</div>
+    </div>
+    <div class="glass stat" title="IP addresses currently firewalled. Each block clears itself after 5 minutes.">
+      <div class="label">Active Blocks</div>
+      <div class="value" id="statBlocks">–</div>
+    </div>
+    <div class="glass stat b" title="Alarms from the fast tripwire: an IP touched more than 15 ports within 20 seconds.">
+      <div class="label">Fast-Scan Alerts</div>
+      <div class="sublabel">cardinality hits</div>
+      <div class="value" id="statCard">–</div>
+    </div>
+    <div class="glass stat c" title="Alarms from the slow-scan detector: an IP's traffic pattern looked like random probing, even with few ports touched.">
+      <div class="label">Slow-Scan Alerts</div>
+      <div class="sublabel">entropy hits</div>
+      <div class="value" id="statEnt">–</div>
+    </div>
   </div>
 
   <div class="main">
     <div class="glass panel">
-      <h2>Live Port Entropy <small>normalized Shannon H, last 5 min, alarm ≥ 0.85</small></h2>
+      <h2>Suspicion Score Over Time <small>normalized Shannon entropy</small></h2>
+      <p class="helptext">0 = traffic looks normal and concentrated. 1 = traffic looks like a methodical scan, evenly spread across ports. The dashed line marks the alarm threshold (0.85).</p>
       <canvas id="entropyChart"></canvas>
     </div>
     <div class="glass panel">
       <h2>Blocked IPs <small>auto-expiring, 5 min</small></h2>
+      <p class="helptext">These addresses are currently firewalled. They'll be released automatically, or press Unblock to release one early.</p>
       <div class="blocklist" id="blockList"><div class="empty">No active blocks.</div></div>
     </div>
   </div>
 
   <div class="glass panel">
     <h2>Alert Ledger <small>most recent 50</small></h2>
+    <p class="helptext">One row per alarm. "Signature" is a cryptographic proof that the alert is genuine and wasn't forged — hover it to copy the full value in your own tools.</p>
     <div class="tablewrap">
       <table>
-        <thead><tr><th>Time</th><th>Source IP</th><th>Detection</th><th>Ports</th><th>Entropy</th><th>Action</th><th>Signature</th></tr></thead>
+        <thead><tr>
+          <th>Time</th>
+          <th>Source IP</th>
+          <th title="Which detector raised this alarm.">Detection</th>
+          <th title="Number of distinct destination ports this IP touched.">Unique Ports</th>
+          <th title="Suspicion score at the time of the alarm (0 = normal, 1 = scan-like). Highlighted when at or above the 0.85 alarm threshold.">Suspicion Score</th>
+          <th title="Whether the source IP was firewalled, or only recorded (e.g. because it's this machine itself).">Action</th>
+          <th title="Truncated HMAC-SHA256 signature proving this alert is authentic.">Signature</th>
+        </tr></thead>
         <tbody id="alertBody"><tr><td colspan="7" class="empty">Waiting for data…</td></tr></tbody>
       </table>
     </div>
   </div>
 
 <script>
+// Draws a dashed reference line at the alarm threshold (0.85) on the entropy chart,
+// so the line itself (not just the subtitle text) tells you where "alarming" starts.
+const thresholdLinePlugin = {
+  id: 'thresholdLine',
+  afterDraw(chart) {
+    const { ctx, chartArea, scales } = chart;
+    if (!chartArea || !scales.y) return;
+    const yPos = scales.y.getPixelForValue(0.85);
+    ctx.save();
+    ctx.strokeStyle = 'rgba(245,167,66,0.55)';
+    ctx.setLineDash([6, 4]);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(chartArea.left, yPos);
+    ctx.lineTo(chartArea.right, yPos);
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(245,167,66,0.85)';
+    ctx.font = '10px ui-monospace, monospace';
+    ctx.fillText('alarm threshold (0.85)', chartArea.left + 6, yPos - 4);
+    ctx.restore();
+  }
+};
+
 const entropyCtx = document.getElementById('entropyChart').getContext('2d');
 const entropyChart = new Chart(entropyCtx, {
   type: 'line',
   data: { datasets: [] },
+  plugins: [thresholdLinePlugin],
   options: {
     responsive:true, maintainAspectRatio:false,
     scales: {
       x: { type:'linear', ticks:{ color:'#8b98a5', callback:(v)=>new Date(v*1000).toLocaleTimeString() }, grid:{color:'rgba(255,255,255,0.05)'} },
-      y: { min:0, max:1, ticks:{ color:'#8b98a5' }, grid:{color:'rgba(255,255,255,0.05)'} }
+      y: {
+        min:0, max:1, ticks:{ color:'#8b98a5' }, grid:{color:'rgba(255,255,255,0.05)'},
+        title: { display:true, text:'Suspicion score (0 = normal, 1 = scan-like)', color:'#8b98a5', font:{ size:11 } }
+      }
     },
     plugins: { legend: { labels:{ color:'#e7ecf1', font:{size:10} } } },
     animation:false
@@ -197,6 +277,7 @@ async function refresh(){
       info.appendChild(el('div', 'ip', b.ip));
       info.appendChild(el('div', 'expires', `expires in ${remaining}s`));
       const btn = el('button', null, 'Unblock now');
+      btn.title = 'Release this IP immediately instead of waiting for the 5-minute timer.';
       btn.onclick = () => fetch('/api/unblock', {
         method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ip: b.ip})
       }).then(refresh);
@@ -213,15 +294,35 @@ async function refresh(){
     alerts.forEach(a => {
       const tr = el('tr');
       const isEnt = a.detection_type === 'PORT_SCAN_ENTROPY';
-      const badge = (cls, text) => { const td = el('td'); td.appendChild(el('span', 'badge ' + cls, text)); return td; };
+      const badge = (cls, text, title) => {
+        const td = el('td');
+        const span = el('span', 'badge ' + cls, text);
+        if (title) span.title = title;
+        td.appendChild(span);
+        return td;
+      };
+
+      const scoreTd = el('td', 'score',
+        a.entropy_value != null ? a.entropy_value.toFixed(3) : '–');
+      if (a.entropy_value != null && a.entropy_value >= 0.85) scoreTd.classList.add('hot');
+
+      const sigTd = el('td', null, a.signature ? a.signature.slice(0, 16) + '…' : '–');
+      sigTd.classList.add('sig');
+      if (a.signature) sigTd.title = a.signature;
+
       tr.append(
         el('td', null, new Date(a.ts*1000).toLocaleTimeString()),
         el('td', null, a.source_ip),
-        badge(isEnt ? 'ent' : 'card', isEnt ? 'ENTROPY' : 'CARDINALITY'),
+        badge(isEnt ? 'ent' : 'card',
+              isEnt ? 'SLOW SCAN' : 'FAST SCAN',
+              isEnt ? 'Entropy detector: traffic pattern looked like methodical probing.'
+                    : 'Cardinality detector: more than 15 ports touched within 20 seconds.'),
         el('td', null, String(a.unique_ports)),
-        el('td', null, a.entropy_value != null ? a.entropy_value.toFixed(3) : '–'),
-        badge(a.blocked ? 'blk' : 'log', a.blocked ? 'BLOCKED' : 'LOGGED ONLY'),
-        el('td', null, a.signature ? a.signature.slice(0, 16) + '…' : '–'),
+        scoreTd,
+        badge(a.blocked ? 'blk' : 'log', a.blocked ? 'BLOCKED' : 'LOGGED ONLY',
+              a.blocked ? 'This IP was firewalled for 5 minutes.'
+                        : 'Seen and recorded, but not firewalled — usually because it is this machine\'s own address.'),
+        sigTd,
       );
       body.appendChild(tr);
     });
