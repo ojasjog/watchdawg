@@ -5,21 +5,19 @@ Run this in a SECOND terminal while watchdog_core.py is sniffing in the first.
 Then open http://127.0.0.1:5000 in a browser.
 """
 
-from flask import Flask, jsonify, render_template, request
-import sqlite3
+import ipaddress
+import os
 import time
-import subprocess
 
-DB_PATH = "watchdog.db"
+from flask import Flask, jsonify, render_template, request
+
+import config
+import firewall
+from db import Database
+
 app = Flask(__name__)
-
-
-def query(sql, params=()):
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    rows = conn.execute(sql, params).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+db = Database(config.DB_PATH)
+db.init()   # idempotent; lets the dashboard start cleanly even before the engine ever has
 
 
 @app.route("/")
@@ -29,53 +27,42 @@ def dashboard():
 
 @app.route("/api/alerts")
 def api_alerts():
-    return jsonify(query("SELECT * FROM alerts ORDER BY ts DESC LIMIT 50"))
+    return jsonify(db.recent_alerts(50))
 
 
 @app.route("/api/entropy")
 def api_entropy():
-    since = time.time() - 300  # last 5 minutes
-    return jsonify(query("SELECT * FROM entropy_log WHERE ts >= ? ORDER BY ts ASC", (since,)))
+    return jsonify(db.entropy_since(time.time() - 300))   # last 5 minutes
 
 
 @app.route("/api/blocks")
 def api_blocks():
-    return jsonify(query("SELECT * FROM blocks WHERE active=1 ORDER BY blocked_at DESC"))
+    return jsonify(db.active_blocks())
 
 
 @app.route("/api/stats")
 def api_stats():
-    total_alerts = query("SELECT COUNT(*) as c FROM alerts")[0]["c"]
-    active_blocks = query("SELECT COUNT(*) as c FROM blocks WHERE active=1")[0]["c"]
-    cardinality_hits = query(
-        "SELECT COUNT(*) as c FROM alerts WHERE detection_type='PORT_SCAN_CARDINALITY'")[0]["c"]
-    entropy_hits = query(
-        "SELECT COUNT(*) as c FROM alerts WHERE detection_type='PORT_SCAN_ENTROPY'")[0]["c"]
-    return jsonify({
-        "total_alerts": total_alerts,
-        "active_blocks": active_blocks,
-        "cardinality_hits": cardinality_hits,
-        "entropy_hits": entropy_hits,
-    })
+    return jsonify({**db.stats(), "engine_last_seen": db.engine_last_seen(), "now": time.time()})
 
 
 @app.route("/api/unblock", methods=["POST"])
 def api_unblock():
-    ip = request.json.get("ip")
-    rule_name = f"Watchdog_Block_{ip}"
+    # silent=True + the JSON content-type requirement also means a cross-site <form> post
+    # can't trigger this; it falls through to the 400 below.
+    payload = request.get_json(silent=True) or {}
     try:
-        subprocess.run(
-            ["netsh", "advfirewall", "firewall", "delete", "rule", f"name={rule_name}"],
-            check=True, capture_output=True
-        )
-    except subprocess.CalledProcessError:
-        pass
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("UPDATE blocks SET active=0 WHERE ip=?", (ip,))
-    conn.commit()
-    conn.close()
+        ip = str(ipaddress.ip_address(str(payload.get("ip", "")).strip()))
+    except ValueError:
+        return jsonify({"ok": False, "error": "a valid IP address is required"}), 400
+
+    # Best effort from here (needs Administrator on Windows). If it can't delete the rule,
+    # the engine, which runs elevated, notices the DB flag within a few seconds and does it.
+    firewall.delete_rule(ip)
+    db.log_unblock(ip)
     return jsonify({"ok": True})
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    # Localhost only. Werkzeug's debugger allows code execution, so it is opt-in:
+    #   FLASK_DEBUG=1 python app.py
+    app.run(host="127.0.0.1", port=5000, debug=os.environ.get("FLASK_DEBUG") == "1")

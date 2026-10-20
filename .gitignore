@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+
+# SQLite runtime artifacts
+watchdog.db-wal
+watchdog.db-shm
+watchdog.db-journal
+
+# Runtime data. watchdog.db is currently tracked, so this line only takes effect after you run
+#   git rm --cached watchdog.db
+# (that stops tracking it but keeps your local copy).
+watchdog.db

@@ -38,6 +38,7 @@
   .dot{width:8px; height:8px; border-radius:50%; background:var(--teal); box-shadow:0 0 8px var(--teal);
        animation:pulse 2s ease-in-out infinite;}
   .dot.off{background:#555; box-shadow:none; animation:none;}
+  .dot.warn{background:var(--amber); box-shadow:0 0 8px var(--amber); animation:none;}
   @keyframes pulse{0%,100%{opacity:1;} 50%{opacity:0.35;}}
 
   .glass{
@@ -79,6 +80,8 @@
   .badge{padding:3px 8px; border-radius:5px; font-size:0.68rem; font-family:var(--sans); font-weight:600;}
   .badge.card{background:rgba(245,167,66,0.15); color:var(--amber);}
   .badge.ent{background:rgba(240,85,107,0.15); color:var(--pink);}
+  .badge.blk{background:rgba(94,234,212,0.13); color:var(--teal);}
+  .badge.log{background:rgba(255,255,255,0.07); color:var(--text-dim);}
   .tablewrap{max-height:320px; overflow-y:auto;}
 
   @media (max-width: 860px){
@@ -116,8 +119,8 @@
     <h2>Alert Ledger <small>most recent 50</small></h2>
     <div class="tablewrap">
       <table>
-        <thead><tr><th>Time</th><th>Source IP</th><th>Detection</th><th>Ports</th><th>Entropy</th><th>Signature</th></tr></thead>
-        <tbody id="alertBody"><tr><td colspan="6" class="empty">Waiting for data…</td></tr></tbody>
+        <thead><tr><th>Time</th><th>Source IP</th><th>Detection</th><th>Ports</th><th>Entropy</th><th>Action</th><th>Signature</th></tr></thead>
+        <tbody id="alertBody"><tr><td colspan="7" class="empty">Waiting for data…</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -157,8 +160,14 @@ async function refresh(){
     document.getElementById('statBlocks').textContent = stats.active_blocks;
     document.getElementById('statCard').textContent = stats.cardinality_hits;
     document.getElementById('statEnt').textContent = stats.entropy_hits;
-    document.getElementById('liveDot').classList.remove('off');
-    document.getElementById('liveText').textContent = 'live';
+
+    // Dashboard reachable is not the same as engine running: the engine publishes a heartbeat.
+    const dot = document.getElementById('liveDot');
+    const engineUp = stats.engine_last_seen && (stats.now - stats.engine_last_seen) < 20;
+    dot.classList.remove('off');
+    dot.classList.toggle('warn', !engineUp);
+    document.getElementById('liveText').textContent =
+      engineUp ? 'engine live' : 'engine offline: start watchdog_core.py';
 
     const byIp = {};
     entropy.forEach(row => {
@@ -170,37 +179,56 @@ async function refresh(){
     }));
     entropyChart.update();
 
+    // Build rows with textContent (never innerHTML) so data from the DB can't inject markup.
+    const el = (tag, cls, text) => {
+      const node = document.createElement(tag);
+      if (cls) node.className = cls;
+      if (text !== undefined) node.textContent = text;
+      return node;
+    };
+
     const blockList = document.getElementById('blockList');
-    blockList.innerHTML = blocks.length ? '' : '<div class="empty">No active blocks.</div>';
+    blockList.replaceChildren();
+    if (!blocks.length) blockList.appendChild(el('div', 'empty', 'No active blocks.'));
     blocks.forEach(b => {
-      const row = document.createElement('div');
-      row.className = 'block-row';
+      const row = el('div', 'block-row');
       const remaining = Math.max(0, Math.round(b.expires_at - Date.now()/1000));
-      row.innerHTML = `<div><div class="ip">${b.ip}</div><div class="expires">expires in ${remaining}s</div></div>`;
-      const btn = document.createElement('button');
-      btn.textContent = 'Unblock now';
-      btn.onclick = () => fetch('/api/unblock', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ip:b.ip})}).then(refresh);
-      row.appendChild(btn);
+      const info = el('div');
+      info.appendChild(el('div', 'ip', b.ip));
+      info.appendChild(el('div', 'expires', `expires in ${remaining}s`));
+      const btn = el('button', null, 'Unblock now');
+      btn.onclick = () => fetch('/api/unblock', {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ip: b.ip})
+      }).then(refresh);
+      row.append(info, btn);
       blockList.appendChild(row);
     });
 
     const body = document.getElementById('alertBody');
-    body.innerHTML = alerts.length ? '' : '<tr><td colspan="6" class="empty">No alerts yet.</td></tr>';
+    body.replaceChildren();
+    if (!alerts.length) {
+      const tr = el('tr'); const td = el('td', 'empty', 'No alerts yet.'); td.colSpan = 7;
+      tr.appendChild(td); body.appendChild(tr);
+    }
     alerts.forEach(a => {
-      const tr = document.createElement('tr');
+      const tr = el('tr');
       const isEnt = a.detection_type === 'PORT_SCAN_ENTROPY';
-      tr.innerHTML = `
-        <td>${new Date(a.ts*1000).toLocaleTimeString()}</td>
-        <td>${a.source_ip}</td>
-        <td><span class="badge ${isEnt?'ent':'card'}">${isEnt?'ENTROPY':'CARDINALITY'}</span></td>
-        <td>${a.unique_ports}</td>
-        <td>${a.entropy_value?.toFixed(3) ?? '–'}</td>
-        <td>${a.signature ? a.signature.slice(0,16)+'…' : '–'}</td>`;
+      const badge = (cls, text) => { const td = el('td'); td.appendChild(el('span', 'badge ' + cls, text)); return td; };
+      tr.append(
+        el('td', null, new Date(a.ts*1000).toLocaleTimeString()),
+        el('td', null, a.source_ip),
+        badge(isEnt ? 'ent' : 'card', isEnt ? 'ENTROPY' : 'CARDINALITY'),
+        el('td', null, String(a.unique_ports)),
+        el('td', null, a.entropy_value != null ? a.entropy_value.toFixed(3) : '–'),
+        badge(a.blocked ? 'blk' : 'log', a.blocked ? 'BLOCKED' : 'LOGGED ONLY'),
+        el('td', null, a.signature ? a.signature.slice(0, 16) + '…' : '–'),
+      );
       body.appendChild(tr);
     });
   }catch(e){
-    document.getElementById('liveDot').classList.add('off');
-    document.getElementById('liveText').textContent = 'no connection';
+    const dot = document.getElementById('liveDot');
+    dot.classList.remove('warn'); dot.classList.add('off');
+    document.getElementById('liveText').textContent = 'dashboard disconnected';
   }
 }
 refresh();
