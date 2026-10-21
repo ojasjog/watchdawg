@@ -56,7 +56,7 @@ sniffer ──SYN──▶ Watchdog engine ──▶ detectors ──alarm──
 
 Using both gives a clear trade-off. Cardinality is the fast path for noisy scans; entropy covers evasive ones, at the cost of needing a minimum sample size (5 SYNs) to be statistically meaningful.
 
-## Real-World Use Cases
+## Real-World Use Cases 
 
 Network Watchdog is a good fit wherever you need transparent, low-overhead scan detection on a Windows host without standing up a full security platform:
 
@@ -98,7 +98,6 @@ python -m pip install -r requirements.txt
 ```
 
 ### Running
-
 Use two terminals.
 
 **Terminal 1: detection engine** (run as Administrator; raw sockets and firewall rules require it):
